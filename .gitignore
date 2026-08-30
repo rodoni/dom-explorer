@@ -58,3 +58,7 @@ report.html
 # Environment & Local Configuration
 .env
 .env.local
+
+# Kilo / Agent configuration
+.kilo/
+.agent/
