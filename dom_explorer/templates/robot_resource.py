@@ -23,8 +23,13 @@ class RobotResourceTemplate:
             elements: List of element metadata dictionaries.
             library: Target library, 'Browser' or 'SeleniumLibrary'.
         """
+        if not page_name.strip():
+            raise ValueError("page_name não pode ser vazio")
+        if library not in {"Browser", "SeleniumLibrary"}:
+            raise ValueError("library deve ser 'Browser' ou 'SeleniumLibrary'")
+
         clean_page_name = page_name.replace(" ", "")
-        lib_name = "Browser" if library.lower() == "browser" else "SeleniumLibrary"
+        lib_name = library
 
         lines: List[str] = [
             "*** Settings ***",

@@ -25,7 +25,9 @@ def sample_html_file():
             <input type="password" id="password" name="pwd" placeholder="Digite sua senha" />
 
             <button type="submit" id="btn-login" data-testid="login-submit-btn">Entrar no Sistema</button>
+            <button type="button" data-test="cancel-login">Cancelar</button>
             <a href="#" id="link-forgot" role="link">Esqueci minha senha</a>
+            <a href="#" data-cy="help-link">Ajuda</a>
         </form>
     </div>
 </body>
@@ -49,6 +51,29 @@ async def test_browser_session_lifecycle_and_inspection(sample_html_file):
     assert launch_result["status"] == "launched"
     assert "Página de Teste de Automação" in launch_result["title"]
 
+    with pytest.raises(ValueError, match="limit"):
+        await session.scan_elements(limit=0)
+
+    with pytest.raises(ValueError, match="Seletor CSS inválido"):
+        await session.scan_elements(selector="[")
+
+    page = await session.ensure_active_page()
+    await page.evaluate(
+        "() => { window.__domExplorerSelectedElement = document.querySelector('#login-form'); }"
+    )
+    component_elements = await session.get_selected_component_elements(
+        only_interactive=True,
+        max_depth=1,
+    )
+    assert component_elements[0]["tag"] == "form"
+    assert {item["tag"] for item in component_elements[1:]} == {"input", "button", "a"}
+
+    root_only = await session.get_selected_component_elements(max_depth=0)
+    assert [item["tag"] for item in root_only] == ["form"]
+
+    with pytest.raises(ValueError, match="max_depth"):
+        await session.get_selected_component_elements(max_depth=-1)
+
     # 2. Test scan_elements (semantic and textual scan)
     scanned_items = await session.scan_elements()
     assert len(scanned_items) >= 4  # username, password, submit button, link
@@ -62,6 +87,14 @@ async def test_browser_session_lifecycle_and_inspection(sample_html_file):
     assert button_item["testId"] == "login-submit-btn"
     assert button_item["browser_locator"] == '[data-testid="login-submit-btn"]'
     assert button_item["variable_name"] == "${BTN_ENTRAR_NO_SISTEMA}"
+
+    cancel_item = next(item for item in scanned_items if item["testId"] == "cancel-login")
+    assert cancel_item["testIdAttribute"] == "data-test"
+    assert cancel_item["browser_locator"] == '[data-test="cancel-login"]'
+
+    help_item = next(item for item in scanned_items if item["testId"] == "help-link")
+    assert help_item["testIdAttribute"] == "data-cy"
+    assert help_item["selenium_locator"] == 'css:[data-cy="help-link"]'
 
     # 3. Test highlight_element
     highlight_result = await session.highlight_element("#btn-login")
@@ -91,3 +124,14 @@ async def test_browser_session_lifecycle_and_inspection(sample_html_file):
 
     # 6. Close session
     await session.close()
+
+
+@pytest.mark.asyncio
+async def test_launch_rejects_unknown_browser():
+    session = BrowserSessionManager()
+
+    with pytest.raises(ValueError, match="browser_type"):
+        await session.launch("https://example.com", browser_type="safari")
+
+    with pytest.raises(ValueError, match="url"):
+        await session.launch("   ")

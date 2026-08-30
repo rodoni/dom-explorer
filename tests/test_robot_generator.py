@@ -69,6 +69,20 @@ def test_generate_locators_with_test_id():
     assert selenium_locs["best"] == 'css:[data-testid="confirm-checkout"]'
 
 
+@pytest.mark.parametrize("attribute", ["data-test", "data-cy", "data-qa"])
+def test_generate_locators_preserves_test_attribute(attribute):
+    locators = RobotLocatorGenerator.generate_locators(
+        {
+            "tag": "button",
+            "testId": "save-button",
+            "testIdAttribute": attribute,
+        }
+    )
+
+    assert locators["browser_library"]["best"] == f'[{attribute}="save-button"]'
+    assert locators["selenium_library"]["best"] == f'css:[{attribute}="save-button"]'
+
+
 def test_generate_locators_with_stable_id():
     metadata = {
         "tag": "input",
@@ -124,3 +138,11 @@ def test_robot_resource_template_generation():
     assert "*** Keywords ***" in content
     assert "Fill Input Login User" in content
     assert "Click Btn Entrar" in content
+
+
+def test_robot_resource_template_rejects_invalid_arguments():
+    with pytest.raises(ValueError, match="page_name"):
+        RobotResourceTemplate.generate("", [])
+
+    with pytest.raises(ValueError, match="library"):
+        RobotResourceTemplate.generate("LoginPage", [], library="Unknown")

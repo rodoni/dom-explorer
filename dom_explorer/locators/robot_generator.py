@@ -67,6 +67,7 @@ class RobotLocatorGenerator:
         elem_id = metadata.get("id", "").strip()
         name = metadata.get("name", "").strip()
         test_id = metadata.get("testId", "").strip()
+        test_id_attribute = metadata.get("testIdAttribute", "data-testid").strip()
         aria_label = metadata.get("ariaLabel", "").strip()
         placeholder = metadata.get("placeholder", "").strip()
 
@@ -125,6 +126,7 @@ class RobotLocatorGenerator:
         elem_id = metadata.get("id", "").strip()
         name = metadata.get("name", "").strip()
         test_id = metadata.get("testId", "").strip()
+        test_id_attribute = metadata.get("testIdAttribute", "data-testid").strip()
         text = metadata.get("text", "").strip()
         role = metadata.get("role", "").strip()
         aria_label = metadata.get("ariaLabel", "").strip()
@@ -138,7 +140,10 @@ class RobotLocatorGenerator:
         browser_locators: Dict[str, str] = {}
 
         if test_id:
-            browser_locators["by_test_id"] = f'[data-testid="{test_id}"]'
+            if test_id_attribute not in {"data-testid", "data-test", "data-cy", "data-qa"}:
+                test_id_attribute = "data-testid"
+            escaped_test_id = test_id.replace("\\", "\\\\").replace('"', '\\"')
+            browser_locators["by_test_id"] = f'[{test_id_attribute}="{escaped_test_id}"]'
         
         if elem_id and not is_likely_dynamic_id(elem_id):
             browser_locators["by_id"] = f"id={elem_id}"
@@ -190,7 +195,8 @@ class RobotLocatorGenerator:
             selenium_locators["by_name"] = f"name:{name}"
 
         if test_id:
-            selenium_locators["by_test_id"] = f'css:[data-testid="{test_id}"]'
+            escaped_test_id = test_id.replace("\\", "\\\\").replace('"', '\\"')
+            selenium_locators["by_test_id"] = f'css:[{test_id_attribute}="{escaped_test_id}"]'
 
         if tag == "a" and text and len(text) <= 40:
             selenium_locators["by_link"] = f"link:{text}"

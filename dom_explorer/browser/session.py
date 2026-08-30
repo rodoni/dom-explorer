@@ -21,6 +21,8 @@ class BrowserSessionManager:
         self._browser: Optional[Browser] = None
         self._context: Optional[BrowserContext] = None
         self._page: Optional[Page] = None
+        self._headless: Optional[bool] = None
+        self._browser_type: Optional[str] = None
         self._inspector_script: str = ""
         self._load_inspector_script()
 
@@ -42,24 +44,32 @@ class BrowserSessionManager:
         browser_type: str = "chromium",
     ) -> Dict[str, Any]:
         """Launches a browser session, navigates to the URL, and injects the DOM inspector."""
+        if browser_type not in {"chromium", "firefox", "webkit"}:
+            raise ValueError(
+                "browser_type deve ser um de: chromium, firefox, webkit"
+            )
+        if not url.strip():
+            raise ValueError("url não pode ser vazia")
+
         if not url.startswith(("http://", "https://", "file://")):
             url = f"https://{url}"
 
-        # If already open, navigate current page or reuse
+        # Reuse only when the requested browser configuration is unchanged.
         if self._page and not self._page.is_closed():
-            await self._page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            if self._inspector_script:
-                await self._page.evaluate(self._inspector_script)
-            title = await self._page.title()
-            return {
-                "status": "reused",
-                "url": self._page.url,
-                "title": title,
-                "message": f"Navegado com sucesso para {self._page.url} na janela existente.",
-            }
-
-        # Clean up any existing instances
-        await self.close()
+            if self._headless == headless and self._browser_type == browser_type:
+                await self._page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                if self._inspector_script:
+                    await self._page.evaluate(self._inspector_script)
+                title = await self._page.title()
+                return {
+                    "status": "reused",
+                    "url": self._page.url,
+                    "title": title,
+                    "message": f"Navegado com sucesso para {self._page.url} na janela existente.",
+                }
+            await self.close()
+        elif self._browser or self._context or self._playwright:
+            await self.close()
 
         self._playwright = await async_playwright().start()
         launcher = getattr(self._playwright, browser_type, self._playwright.chromium)
@@ -79,6 +89,8 @@ class BrowserSessionManager:
             await self._context.add_init_script(self._inspector_script)
 
         self._page = await self._context.new_page()
+        self._headless = headless
+        self._browser_type = browser_type
         await self._page.goto(url, wait_until="domcontentloaded", timeout=45000)
 
         # Ensure inspector script is executed on the page immediately
@@ -143,6 +155,42 @@ class BrowserSessionManager:
             })
         return augmented_history
 
+    async def get_selected_component_elements(
+        self,
+        only_interactive: bool = True,
+        max_depth: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """Returns the selected element and matching descendants up to max_depth."""
+        if max_depth < 0:
+            raise ValueError("max_depth não pode ser negativo")
+
+        page = await self.ensure_active_page()
+        return await page.evaluate(
+            """
+            ({ onlyInteractive, maxDepth }) => {
+                const root = window.__domExplorerSelectedElement;
+                const extract = window.__domExplorerExtractElementMetadata;
+                if (!root || typeof extract !== 'function') return [];
+
+                const interactiveTags = new Set(['button', 'input', 'select', 'textarea', 'a']);
+                const elements = [];
+                const visit = (element, depth) => {
+                    const metadata = extract(element);
+                    const isInteractive = interactiveTags.has(metadata.tag) || Boolean(metadata.role);
+                    if (depth === 0 || !onlyInteractive || (isInteractive && metadata.isInteractable)) {
+                        elements.push(metadata);
+                    }
+                    if (depth >= maxDepth) return;
+                    for (const child of element.children) visit(child, depth + 1);
+                };
+
+                visit(root, 0);
+                return elements;
+            }
+            """,
+            {"onlyInteractive": only_interactive, "maxDepth": max_depth},
+        )
+
     async def highlight_element(self, selector: str) -> Dict[str, Any]:
         """Visually highlights an element using a CSS selector or ID and validates uniqueness."""
         page = await self.ensure_active_page()
@@ -200,6 +248,9 @@ class BrowserSessionManager:
         limit: int = 25,
     ) -> List[Dict[str, Any]]:
         """Scans the DOM for elements matching textual or semantic criteria."""
+        if limit < 1:
+            raise ValueError("limit deve ser maior que zero")
+
         page = await self.ensure_active_page()
 
         scan_script = """
@@ -249,7 +300,9 @@ class BrowserSessionManager:
                 const placeholder = el.getAttribute('placeholder') || '';
                 const role = el.getAttribute('role') || '';
                 const ariaLabel = el.getAttribute('aria-label') || '';
-                const testId = el.getAttribute('data-testid') || el.getAttribute('data-test') || el.getAttribute('data-cy') || '';
+                const testIdAttributes = ['data-testid', 'data-test', 'data-cy', 'data-qa'];
+                const testIdAttribute = testIdAttributes.find((attribute) => el.hasAttribute(attribute)) || '';
+                const testId = testIdAttribute ? el.getAttribute(testIdAttribute) : '';
 
                 results.push({
                     tag,
@@ -260,6 +313,7 @@ class BrowserSessionManager:
                     role,
                     ariaLabel,
                     testId,
+                    testIdAttribute,
                     text: elText.slice(0, 100),
                     classList: Array.from(el.classList),
                     boundingBox: {
@@ -285,6 +339,8 @@ class BrowserSessionManager:
         }
 
         eval_result = await page.evaluate(scan_script, criteria)
+        if eval_result.get("error"):
+            raise ValueError(f"Seletor CSS inválido: {eval_result['error']}")
         items = eval_result.get("items", [])
 
         augmented = []
@@ -296,6 +352,7 @@ class BrowserSessionManager:
                 "text": item.get("text"),
                 "name": item.get("name"),
                 "testId": item.get("testId"),
+                "testIdAttribute": item.get("testIdAttribute"),
                 "variable_name": locators_info["variable_name"],
                 "browser_locator": locators_info["browser_library"]["best"],
                 "selenium_locator": locators_info["selenium_library"]["best"],
@@ -333,3 +390,6 @@ class BrowserSessionManager:
             except Exception:
                 pass
             self._playwright = None
+
+        self._headless = None
+        self._browser_type = None

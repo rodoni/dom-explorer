@@ -5,7 +5,8 @@ Provides interactive DOM exploration, element inspection, and Robot Framework lo
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional
 from mcp.server.mcpserver import MCPServer
 
 from dom_explorer.browser.session import BrowserSessionManager
@@ -28,7 +29,7 @@ session = BrowserSessionManager()
 async def launch_browser(
     url: str,
     headless: bool = False,
-    browser_type: str = "chromium",
+    browser_type: Literal["chromium", "firefox", "webkit"] = "chromium",
 ) -> Dict[str, Any]:
     """Abre um navegador visível (headful por padrão) na URL informada e injeta o inspetor do DOM Explorer.
 
@@ -95,7 +96,11 @@ async def highlight_element(selector: str) -> Dict[str, Any]:
 @server.tool()
 async def export_robot_resource(
     page_name: str,
-    library: str = "Browser",
+    library: Literal["Browser", "SeleniumLibrary"] = "Browser",
+    include_children: bool = False,
+    only_interactive: bool = True,
+    max_depth: int = 3,
+    output_path: Optional[str] = None,
 ) -> str:
     """Gera um arquivo de recurso (.resource) completo para o Robot Framework baseado nos elementos
     inspecionados até o momento, contendo a seção *** Variables *** e *** Keywords *** (Page Object Pattern).
@@ -103,6 +108,10 @@ async def export_robot_resource(
     Args:
         page_name: Nome da página ou componente (ex: 'LoginPage', 'DashboardHeader').
         library: Biblioteca alvo do Robot Framework ('Browser' para Playwright ou 'SeleniumLibrary').
+        include_children: Inclui o componente selecionado e seus descendentes.
+        only_interactive: Limita descendentes a elementos interativos.
+        max_depth: Profundidade máxima dos descendentes incluídos.
+        output_path: Caminho opcional onde o arquivo .resource será gravado.
     """
     history = await session.get_selection_history()
     elements = [item["element"] for item in history if "element" in item]
@@ -112,11 +121,41 @@ async def export_robot_resource(
         if current.get("has_selection") and "element" in current:
             elements = [current["element"]]
 
-    return RobotResourceTemplate.generate(
+    if include_children:
+        elements.extend(
+            await session.get_selected_component_elements(
+                only_interactive=only_interactive,
+                max_depth=max_depth,
+            )
+        )
+
+    # History and component traversal can contain the same element.
+    unique_elements = []
+    seen = set()
+    for element in elements:
+        key = element.get("xpath") or (
+            element.get("tag"),
+            element.get("id"),
+            element.get("text"),
+        )
+        if key not in seen:
+            seen.add(key)
+            unique_elements.append(element)
+
+    resource_content = RobotResourceTemplate.generate(
         page_name=page_name,
-        elements=elements,
+        elements=unique_elements,
         library=library,
     )
+
+    if output_path is not None:
+        if not output_path.strip():
+            raise ValueError("output_path não pode ser vazio")
+        resource_path = Path(output_path).expanduser()
+        resource_path.parent.mkdir(parents=True, exist_ok=True)
+        resource_path.write_text(resource_content, encoding="utf-8")
+
+    return resource_content
 
 
 @server.tool()

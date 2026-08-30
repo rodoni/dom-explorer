@@ -168,10 +168,9 @@
     }
 
     // Common test ID attributes
-    const testId = el.getAttribute('data-testid') || 
-                   el.getAttribute('data-test') || 
-                   el.getAttribute('data-cy') || 
-                   el.getAttribute('data-qa') || '';
+    const testIdAttributes = ['data-testid', 'data-test', 'data-cy', 'data-qa'];
+    const testIdAttribute = testIdAttributes.find((attribute) => el.hasAttribute(attribute)) || '';
+    const testId = testIdAttribute ? el.getAttribute(testIdAttribute) : '';
 
     // Class list
     const classList = Array.from(el.classList);
@@ -195,7 +194,7 @@
     if (id) {
       uniqueCss = `#${CSS.escape(id)}`;
     } else if (testId) {
-      uniqueCss = `[data-testid="${testId}"]`;
+      uniqueCss = `[${testIdAttribute}="${CSS.escape(testId)}"]`;
     } else if (name) {
       uniqueCss = `${tag}[name="${name}"]`;
     }
@@ -209,6 +208,7 @@
       role,
       ariaLabel,
       testId,
+      testIdAttribute,
       text: textContent,
       classList,
       attributes,
@@ -243,12 +243,14 @@
 
     const tag = target.tagName.toLowerCase();
     const id = target.id ? `#${target.id}` : '';
-    const testId = target.getAttribute('data-testid') || target.getAttribute('data-test') || target.getAttribute('data-cy');
+     const testIdAttributes = ['data-testid', 'data-test', 'data-cy', 'data-qa'];
+     const testIdAttribute = testIdAttributes.find((attribute) => target.hasAttribute(attribute)) || '';
+     const testId = testIdAttribute ? target.getAttribute(testIdAttribute) : '';
     const role = target.getAttribute('role');
     const textSnippet = (target.innerText || target.textContent || '').trim().slice(0, 40);
 
     let infoHtml = `<strong style="color:#38bdf8;">&lt;${tag}${id}&gt;</strong>`;
-    if (testId) infoHtml += ` <span style="color:#a78bfa;">[data-testid="${testId}"]</span>`;
+     if (testId) infoHtml += ` <span style="color:#a78bfa;">[${testIdAttribute}="${testId}"]</span>`;
     if (role) infoHtml += ` <span style="color:#f472b6;">role="${role}"</span>`;
     if (textSnippet) infoHtml += `<div style="color:#94a3b8; font-size:10px; margin-top:2px;">"${textSnippet}"</div>`;
 
@@ -287,6 +289,7 @@
 
     const metadata = extractElementMetadata(target);
     window.__domExplorerSelection = metadata;
+    window.__domExplorerSelectedElement = target;
     window.__domExplorerHistory.push(metadata);
 
     // Update control bar status
@@ -300,6 +303,8 @@
   }, true);
 
   // Expose global methods for Playwright bridge
+  window.__domExplorerExtractElementMetadata = extractElementMetadata;
+
   window.__domExplorerHighlight = (selector) => {
     try {
       const el = document.querySelector(selector);

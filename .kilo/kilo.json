@@ -1,0 +1,20 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "dom-explorer": {
+      "type": "local",
+      "command": [
+        "uv",
+        "run",
+        "--directory",
+        "/home/odoni_r/projects/dom-explorer",
+        "dom-explorer"
+      ],
+      "enabled": true,
+      "timeout": 30000
+    }
+  },
+  "permission": {
+    "dom-explorer_*": "allow"
+  }
+}
